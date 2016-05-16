@@ -330,9 +330,15 @@ class BookSettings(object):
     def aliases(self):
         return self._aliases
 
-    @aliases.setter
     def aliases(self, val):
-        self._aliases[val[0]] =  val[1].replace(', ', ',').split(',')
+        # 'aliases' is a string containing a comma separated list of aliases.  
+        #
+        # Split it, remove whitespace from each element, drop empty strings (strangely, split only does this if you don't specify a separator)
+        #
+        # so "" -> []  "foo,bar" and " foo   , bar " -> ["foo", "bar"]
+        label, aliases = val
+        aliases = [x.strip() for x in aliases.split(",") if x.strip()]
+        self._aliases[label] =  aliases
 
     def save(self):
         self._prefs['asin'] = self.asin

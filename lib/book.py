@@ -1,9 +1,11 @@
 # Book.py
 
 import os
+import sys
 import re
 import struct
 import ctypes
+import subprocess
 from glob import glob
 from shutil import copy, rmtree
 from urllib import urlencode
@@ -24,8 +26,10 @@ from calibre_plugins.xray_creator.lib.xray_db_writer import XRayDBWriter
 from calibre_plugins.xray_creator.lib.shelfari_parser import ShelfariParser
 
 
-# Drive types
-DRIVE_REMOVABLE   = 2  # The drive has removable media; for example, a floppy drive, thumb drive, or flash card reader.
+# Drive types - mirror's what Window's GetDriveType() API returns, for convenience
+DRIVE_REMOVABLE   = 2
+DRIVE_FIXED       = 3
+
 books_updated = []
 books_skipped = []
 
@@ -361,26 +365,53 @@ class Book(object):
             raise Exception(info['status_message'])
 
     def _find_device(self):
+        """
+        Look for the Kindle and return the device drive (for Windows) or mount point (for OS X/Linux)
+        """
         drive_info = self._get_drive_info()
         removable_drives = [drive_letter for drive_letter, drive_type in drive_info if drive_type == DRIVE_REMOVABLE]
         for drive in removable_drives:
-            for dirName, subDirList, fileList in os.walk(drive):
-                if dirName == drive + 'system\.mrch':
-                    for fName in fileList:
-                        if 'amzn1_account' in fName:
-                            return drive
+            magic_file = os.path.join(drive, "system", "version.txt")
+            if os.path.exists(magic_file):
+                if open(magic_file).readline().startswith("Kindle"):
+                    return drive
         return None
 
     # Return list of tuples mapping drive letters to drive types
     def _get_drive_info(self):
+        """
+        Return a list of tuples, each tuple containing drive letter/path and drive type
+        
+        eg. ("C:", DRIVE_FIXED) or ("/Volumes/Kindle", DRIVE_REMOVABLE)
+        """
         result = []
-        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
-        for i in range(26):
-            bit = 2 ** i
-            if bit & bitmask:
-                drive_letter = '%s:' % chr(65 + i)
-                drive_type = ctypes.windll.kernel32.GetDriveTypeA('%s\\' % drive_letter)
-                result.append((drive_letter, drive_type))
+        if sys.platform == "win32":    
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for i in range(26):
+                bit = 2 ** i
+                if bit & bitmask:
+                    drive_letter = '%s:' % chr(65 + i)
+                    drive_type = ctypes.windll.kernel32.GetDriveTypeA('%s\\' % drive_letter)
+                    result.append((drive_letter, drive_type))
+        elif sys.platform == "darwin" or "linux" in sys.platform:
+            # mount output shows us what is attached
+            # Ignore anything that isn't a device, which will start with slash (eg. /dev/disk1)
+            # Only interested in device name and mountpoint
+            stdout, stderr = subprocess.Popen("mount", stdout=subprocess.PIPE).communicate()            
+            for mount_entry in [x.split() for x in stdout.split('\n') if x.startswith("/")]:
+                device = mount_entry[0]
+                mountpoint = mount_entry[2]
+                if mountpoint == "/":
+                    result.append((mountpoint, DRIVE_FIXED))
+                else:
+                    # This is a slight lie - non-Windows systems don't have such an obvious
+                    # split between fixed + removeable, so with the exception of the root device
+                    # (which I'm pretty certain isn't a Kindle!), claim everything is removable
+                    result.append((mountpoint, DRIVE_REMOVABLE))
+        else:
+            import errno
+            raise EnvironmentError(errno.EINVAL, "Unknown platform %s" % (sys.platform))
+            
         return result
 
     def create_xray(self, aConnection, sConnection, info, log=None, abort=None, remove_files_from_dir=False):
@@ -420,19 +451,20 @@ class Book(object):
         return (aConnection, sConnection)
 
     def send_xray(self, overwrite=True, already_created=True, log=None, abort=None, aConnection=None, sConnection=None):
-        device_drive = self._find_device()
+        device = self._find_device()
         for info in self.formats_not_failing():
             try:
-                if not device_drive:
+                if not device:
                     info['send_status'] = self.FAIL
                     info['status_message'] = self.FAILED_NO_CONNECTED_DEVICE
                     continue
     
-                info['device_book'] = os.path.join(device_drive, os.sep, info['device_book'])
-                info['device_xray'] = os.path.join(device_drive, os.sep, info['device_xray'])
+                info['device_book'] = os.path.join(device, info['device_book'])
+                info['device_xray'] = os.path.join(device, info['device_xray'])
 
                 # check to make sure book is on the device
                 if not os.path.exists(info['device_book']):
+                    print info["device_book"]
                     info['send_status'] = self.FAIL
                     info['status_message'] = self.FAILED_BOOK_NOT_ON_DEVICE
                     continue
