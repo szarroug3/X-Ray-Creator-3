@@ -4,17 +4,17 @@ import os
 import re
 import functools
 from urllib import urlencode
-from httplib import HTTPConnection
+from httplib import HTTPSConnection
 
-from calibre_plugins.xray_creator.lib.shelfari_parser import ShelfariParser
+from calibre_plugins.xray_creator.lib.goodreads_parser import GoodreadsParser
 
 from calibre.utils.config import JSONConfig
 from calibre.library import current_library_path
 from calibre.ebooks.BeautifulSoup import BeautifulSoup
 
 class BookSettings(object):
-    AMAZON_ASIN_PAT = re.compile(r'data\-asin=\"([a-zA-z0-9]+)\"')
-    SHELFARI_URL_PAT = re.compile(r'href="(.+/books/.+?)"')
+    GOODREADS_URL_PAT = re.compile(r'href="(/book/show/.+?)"')
+
     HEADERS = {"Content-type": "application/x-www-form-urlencoded", "Accept": "text/html", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:46.0) Gecko/20100101 Firefox/46.0"}
     LIBRARY = current_library_path()
     HONORIFICS = 'mr mrs ms esq prof dr fr rev pr atty adv hon pres gov sen ofc pvt cpl sgt maj capt cmdr lt col gen'
@@ -31,47 +31,36 @@ class BookSettings(object):
     HONORIFICS += RELIGIOUS_HONORIFICS
     HONORIFICS += DOUBLE_HONORIFICS
 
-    def __init__(self, db, book_id, aConnection, sConnection):
+    COMMON_WORDS = 'the of de'.split()
+
+    def __init__(self, db, book_id, connection):
         self._db = db
         self._book_id = book_id
-        self._aConnection = aConnection
-        self._sConnection = sConnection
+        self._connection = connection
 
         book_path = self._db.field_for('path', book_id).replace('/', os.sep)
 
         self._prefs = JSONConfig(os.path.join(book_path, 'book_settings'), base_path=self.LIBRARY)
-        self._prefs.setdefault('asin', '')
-        self._prefs.setdefault('shelfari_url', '')
+        self._prefs.setdefault('goodreads_url', '')
         self._prefs.setdefault('aliases', {})
         self._prefs.commit()
 
         self._title = self._db.field_for('title', book_id)
         self._author = ' & '.join(self._db.field_for('authors', self._book_id))
 
-        self.asin = self._prefs['asin']
-        if self.asin == '':
-            identifiers = self._db.field_for('identifiers', self._book_id)
-            self.asin = self._db.field_for('identifiers', self._book_id)['mobi-asin'].decode('ascii') if 'mobi-asin' in identifiers.keys() else None
-            if not self.asin:
-                self.asin = self.get_asin()
-            if self.asin:
-                self._prefs['asin'] = self.asin
-
-        self.shelfari_url = self._prefs['shelfari_url']
-        if self.shelfari_url == '':
+        self.goodreads_url = self._prefs['goodreads_url']
+        if self.goodreads_url == '':
             url = None
-            if self._prefs['asin'] != '':
-                url = self.search_shelfari(self._prefs['asin'])
-            if not url and self.title != 'Unknown' and self.author != 'Unknown':
-                url = self.search_shelfari(self.title_and_author)
+            if self.title != 'Unknown' and self.author != 'Unknown':
+                url = self.search_goodreads(self.title_and_author)
 
             if url:
-                self.shelfari_url = url
-                self._prefs['shelfari_url'] = self.shelfari_url
+                self.goodreads_url = url
+                self._prefs['goodreads_url'] = self.goodreads_url
 
         self._aliases = self._prefs['aliases']
-        if len(self._aliases.keys()) == 0 and self.shelfari_url != '':
-            self.update_aliases()
+        if len(self._aliases.keys()) == 0 and self.goodreads_url != '':
+            self.update_aliases(self.goodreads_url)
         self.save()
 
     @property
@@ -91,20 +80,12 @@ class BookSettings(object):
         return '%s - %s' % (self.title, self.author)
 
     @property
-    def asin(self):
-        return self._asin
+    def goodreads_url(self):
+        return self._goodreads_url
     
-    @asin.setter
-    def asin(self, val):
-        self._asin = val
-
-    @property
-    def shelfari_url(self):
-        return self._shelfari_url
-    
-    @shelfari_url.setter
-    def shelfari_url(self, val):
-        self._shelfari_url = val
+    @goodreads_url.setter
+    def goodreads_url(self, val):
+        self._goodreads_url = val
 
     @property
     def aliases(self):
@@ -122,102 +103,67 @@ class BookSettings(object):
         self._aliases[label] =  aliases
 
     def save(self):
-        self._prefs['asin'] = self.asin
-        self._prefs['shelfari_url'] = self.shelfari_url
+        self._prefs['goodreads_url'] = self.goodreads_url
         self._prefs['aliases'] = self.aliases
 
-    def get_asin(self):
-        query = urlencode({'keywords': '%s' % self.title_and_author})
+    def search_goodreads(self, keywords):
+        query = urlencode ({'q': keywords})
         try:
-            self._aConnection.request('GET', '/s/ref=sr_qz_back?sf=qz&rh=i%3Adigital-text%2Cn%3A154606011%2Ck%3A' + query[9:] + '&' + query, headers=self.HEADERS)
-            response = self._aConnection.getresponse().read()
+            self._connection.request('GET', '/search?' + query)
+            response = self._connection.getresponse().read()
         except:
             try:
-                self._aConnection.close()
+                self._connection.close()
                 if self._proxy:
-                    self._aConnection = HTTPConnection(self._http_address, self._http_port)
-                    self._aConnection.set_tunnel('www.amazon.com', 80)
+                    self._connection = HTTPSConnection(self._https_address, self._https_port)
+                    self._connection.set_tunnel('www.goodreads.com', 443)
                 else:
-                    self._aConnection = HTTPConnection('www.amazon.com')
+                    self._connection = HTTPSConnection('www.goodreads.com')
 
-                self._aConnection.request('GET', '/s/ref=sr_qz_back?sf=qz&rh=i%3Adigital-text%2Cn%3A154606011%2Ck%3A' + query[9:] + '&' + query, headers=self.HEADERS)
-                response = self._aConnection.getresponse().read()
-            except:
-                return None
-
-        # check to make sure there are results
-        if 'did not match any products' in response and not 'Did you mean:' in response and not 'so we searched in All Departments' in response:
-            return None
-
-        soup = BeautifulSoup(response)
-        results = soup.findAll('div', {'id': 'resultsCol'})
-       
-        if not results or len(results) == 0:
-            return None
-
-        for r in results:
-            if 'Buy now with 1-Click' in str(r):
-                asinSearch = self.AMAZON_ASIN_PAT.search(str(r))
-                if asinSearch:
-                    asin = asinSearch.group(1)
-                    mi = self._db.get_metadata(self._book_id)
-                    identifiers = mi.get_identifiers()
-                    identifiers['mobi-asin'] = asin
-                    mi.set_identifiers(identifiers)
-                    self._db.set_metadata(self._book_id, mi)
-                    return asin
-
-    def search_shelfari(self, keywords):
-        query = urlencode ({'Keywords': keywords})
-        try:
-            self._sConnection.request('GET', '/search/books?' + query)
-            response = self._sConnection.getresponse().read()
-        except:
-            try:
-                self._sConnection.close()
-                if self._proxy:
-                    self._sConnection = HTTPConnection(self._http_address, self._http_port)
-                    self._sConnection.set_tunnel('www.shelfari.com', 80)
-                else:
-                    self._sConnection = HTTPConnection('www.shelfari.com')
-
-                self._sConnection.request('GET', '/search/books?' + query)
-                response = self._sConnection.getresponse().read()
+                self._connection.request('GET', '/search?' + query)
+                response = self._connection.getresponse().read()
             except:
                 return None
         
         # check to make sure there are results
-        if 'did not return any results' in response:
+        if 'No results' in response:
             return None
 
-        urlsearch = self.SHELFARI_URL_PAT.search(response)
+        urlsearch = self.GOODREADS_URL_PAT.search(response)
         if not urlsearch:
             return None
 
-        return urlsearch.group(1)
+        return 'https://www.goodreads.com' + urlsearch.group(1)
 
-    def update_aliases(self, overwrite=False):
-        shelfari_parser = ShelfariParser(self.shelfari_url)
-        shelfari_parser.get_characters()
-        shelfari_parser.get_terms()
+    def update_aliases(self, url, overwrite=False):
+        goodreads_parser = GoodreadsParser(url, self._connection)
+        goodreads_parser.get_characters()
+        goodreads_parser.get_settings()
+        goodreads_chars =  goodreads_parser.characters
 
         if overwrite:
             self._prefs['aliases'] = {}
             self._aliases = {}
         
-        characters = [char[1]['label'] for char in shelfari_parser.characters.items()]
-        for char in characters:
-            if char not in self.aliases.keys():
-                self.aliases = (char, '')
-        
-        terms = [term[1]['label'] for term in shelfari_parser.terms.items()]
-        for term in terms:
-            if term not in self.aliases.keys():
-                self.aliases = (term, '')
+        characters = []
+        alias_lookup = {}
+        for char, char_data in goodreads_chars.items():
+            characters.append(char_data['label'])
+            alias_lookup[char_data['label']] = char_data['label']
+
+            if char_data['label'] not in self.aliases.keys():
+                self.aliases = (char_data['label'], ','.join(goodreads_chars[char]['aliases']))
+
+            for alias in char_data['aliases']:
+                characters.append(alias)
+                alias_lookup[alias] = char_data['label']
 
         aliases = self.auto_expand_aliases(characters)
         for alias, fullname in aliases.items():
-            self.aliases = (fullname, alias + ',' + ','.join(self.aliases[fullname]))
+            self.aliases = (alias_lookup[fullname], alias + ',' + ','.join(self.aliases[alias_lookup[fullname]]))
+
+        for setting, setting_data in goodreads_parser.settings.items():
+            self.aliases = (setting_data['label'], '')
 
     def auto_expand_aliases(self, characters):
         actual_aliases = {}
@@ -225,8 +171,8 @@ class BookSettings(object):
         for fullname in characters:
             aliases = self.fullname_to_possible_aliases(fullname.lower())
             for alias in aliases:
-                # if this alias has already been flagged as a duplicate, skip it
-                if alias in duplicates:
+                # if this alias has already been flagged as a duplicate or is a common word, skip it
+                if alias in duplicates or alias in self.COMMON_WORDS:
                     continue
                 # check if this alias is a duplicate but isn't in the duplicates list
                 if actual_aliases.has_key(alias):

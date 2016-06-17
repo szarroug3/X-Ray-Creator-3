@@ -5,10 +5,10 @@ import os
 from calibre_plugins.xray_creator.lib.db_writer import DBWriter
 
 class XRayDBWriter(object):
-    def __init__(self, xray_directory, asin, shelfari_url, parsed_data):
-        self._filename = os.path.join(xray_directory, 'XRAY.entities.%s.asc' % asin)
+    def __init__(self, xray_directory, goodreads_url, parsed_data):
+        self._filename = os.path.join(xray_directory, 'XRAY.asc')
         if not os.path.exists(xray_directory): os.mkdir(xray_directory)
-        self._shelfari_url = shelfari_url
+        self._goodreads_url = goodreads_url
         self._db_writer = DBWriter(self._filename)
         self._erl = parsed_data.erl
         self._excerpt_data = parsed_data.excerpt_data
@@ -90,7 +90,7 @@ class XRayDBWriter(object):
         self._db_writer.insert_into_occurrence(occurrence_data)
 
     def update_string(self):
-        self._db_writer.update_string(self._shelfari_url.encode(self._codec))
+        self._db_writer.update_string(self._goodreads_url.encode(self._codec))
 
     def update_type(self):
         top_mentioned_people = [(str(self._entity_data[entity]['entity_id']), self._entity_data[entity]['mentions']) for entity in self._entity_data.keys() if self._entity_data[entity]['type'] == 1]
