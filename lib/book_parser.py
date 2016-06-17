@@ -14,11 +14,11 @@ class BookParser(object):
     PARAGRAPH_PAT = re.compile(r'<p.*?>.+?(?:<\/p>)', re.I)
     PLAIN_TEXT_PAT = re.compile(r'>([^<]+?)<', re.I)
 
-    def __init__(self, book_type, book_path, shelfari_data, aliases):
+    def __init__(self, book_type, book_path, goodreads_data, aliases):
         self._book_path = book_path
         self._excerpt_data = {}
         self._entity_data = {}
-        self._quotes = shelfari_data.quotes
+        self._quotes = goodreads_data.quotes
         self._notable_clips = []
         self._aliases = {}
 
@@ -26,17 +26,17 @@ class BookParser(object):
         if book_type.lower() == 'azw3':
             self._offset = -16
 
-        for char in shelfari_data.characters.items():
-            original = char[1]['label']
+        for char, char_data in goodreads_data.characters.items():
+            original = char_data['label']
             label = original.lower()
-            desc = char[1]['description'] if char[1]['description'] else ''
-            self._entity_data[label] = {'original_label': original, 'entity_id': char[0], 'description': desc, 'type': 1, 'mentions': 0, 'excerpt_ids': [], 'occurrence': []}
+            desc = char_data['description'] if char_data['description'] else ''
+            self._entity_data[label] = {'original_label': original, 'entity_id': char, 'description': desc, 'type': 1, 'mentions': 0, 'excerpt_ids': [], 'occurrence': []}
 
-        for term in shelfari_data.terms.items():
-            original = term[1]['label']
+        for setting, setting_data in goodreads_data.settings.items():
+            original = setting_data['label']
             label = original.lower()
-            desc = term[1]['description'] if term[1]['description'] else ''
-            self._entity_data[label] = {'original_label': original, 'entity_id': term[0], 'description': desc, 'type': 2, 'mentions': 0, 'excerpt_ids': [], 'occurrence': []}
+            desc = setting_data['description'] if setting_data['description'] else ''
+            self._entity_data[label] = {'original_label': original, 'entity_id': setting, 'description': desc, 'type': 2, 'mentions': 0, 'excerpt_ids': [], 'occurrence': []}
 
         for term, alias_list in aliases.items():
             if term.lower() in self.entity_data.keys():

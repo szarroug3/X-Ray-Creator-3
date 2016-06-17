@@ -75,7 +75,7 @@ class DBWriter(object):
 		self._insert_into_table('occurrence', data)
 
 	def update_string(self, url):
-		'''Update shelfari url in string table'''
+		'''Update Goodreads url in string table'''
 		self._cursor.execute('UPDATE string SET text=? WHERE id=15', (url,))
 		self._connection.commit()
 
@@ -119,17 +119,17 @@ class DBWriter(object):
 						('1','pt-BR','eBook'),
 						('1','ru','Книга'),
 						('1','zh-CN','电子书'),
-						('2','de','Shelfari'),
-						('2','en','Shelfari'),
-						('2','en-US','Shelfari'),
-						('2','es','Shelfari'),
-						('2','fr','Shelfari'),
-						('2','it','Shelfari'),
-						('2','ja','Shelfari'),
-						('2','nl','Shelfari'),
-						('2','pt-BR','Shelfari'),
-						('2','ru','Shelfari'),
-						('2','zh-CN','Shelfari'),
+						('2','de','goodreads'),
+						('2','en','goodreads'),
+						('2','en-US','goodreads'),
+						('2','es','goodreads'),
+						('2','fr','goodreads'),
+						('2','it','goodreads'),
+						('2','ja','goodreads'),
+						('2','nl','goodreads'),
+						('2','pt-BR','goodreads'),
+						('2','ru','goodreads'),
+						('2','zh-CN','goodreads'),
 						('3','de','Kindle-Shop'),
 						('3','en','Kindle Store'),
 						('3','en-US','Kindle Store'),
@@ -244,4 +244,4 @@ class DBWriter(object):
 						('12','zh-CN','主题'),
 						('13','en','store://%s'),
 						('14','en','http://en.wikipedia.org/wiki/%s'),
-						('15','en','http://www.shelfari.com')]
+						('15','en','http://www.goodreads.com')]

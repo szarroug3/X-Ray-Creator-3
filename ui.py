@@ -31,7 +31,6 @@ class XRayCreatorInterfacePlugin(InterfaceAction):
 
     def genesis(self):
         # initial setup here
-        self._spoilers = prefs['spoilers']
         self._send_to_device = prefs['send_to_device']
         self._create_xray_when_sending = prefs['create_xray_when_sending']
         self._mobi = prefs['mobi']
@@ -61,7 +60,6 @@ class XRayCreatorInterfacePlugin(InterfaceAction):
     def apply_settings(self):
         from calibre_plugins.xray_creator.config import prefs
 
-        self._spoilers = prefs['spoilers']
         self._send_to_device = prefs['send_to_device']
         self._create_xray_when_sending = prefs['create_xray_when_sending']
         self._mobi = prefs['mobi']
@@ -122,7 +120,7 @@ class XRayCreatorInterfacePlugin(InterfaceAction):
         if self._azw3:
             formats.append('AZW3')
 
-        xray_creator = XRayCreator(db, ids, formats=formats, spoilers=self._spoilers, send_to_device=self._send_to_device, create_xray=self._create_xray_when_sending)
+        xray_creator = XRayCreator(db, ids, formats=formats, send_to_device=self._send_to_device, create_xray=self._create_xray_when_sending)
         return xray_creator
 
     def config(self):

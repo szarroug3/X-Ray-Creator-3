@@ -1,7 +1,7 @@
 # xray_creator.py
 
 from datetime import datetime
-from httplib import HTTPConnection
+from httplib import HTTPSConnection
 
 from calibre import get_proxies
 
@@ -10,11 +10,10 @@ from calibre_plugins.xray_creator.lib.book import Book
 class XRayCreator(object):
     HEADERS = {"Content-type": "application/x-www-form-urlencoded", "Accept": "text/html", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:46.0) Gecko/20100101 Firefox/46.0"}
 
-    def __init__(self, db, book_ids, formats=[], spoilers=False, send_to_device=True, create_xray=True):
+    def __init__(self, db, book_ids, formats=[], send_to_device=True, create_xray=True):
         self._db = db
         self._book_ids = book_ids
         self._formats = formats
-        self._spoilers = spoilers
         self._send_to_device = send_to_device
         self._create_xray = create_xray
 
@@ -24,28 +23,24 @@ class XRayCreator(object):
     
     def _initialize_books(self):
         self._proxy = False
-        self._http_address = None
-        self._http_port = None
+        self._https_address = None
+        self._https_port = None
 
-        http_proxy = get_proxies(debug=False).get('http', None)
-        if http_proxy:
+        https_proxy = get_proxies(debug=False).get('https', None)
+        if https_proxy:
             self._proxy = True
-            self._http_address = ':'.join(http_proxy.split(':')[:-1])
-            self._http_port = int(http_proxy.split(':')[-1])
-
-            self._aConnection = HTTPConnection(self._http_address, self._http_port)
-            self._aConnection.set_tunnel('www.amazon.com', 80)
-            self._sConnection = HTTPConnection(self._http_address, self._http_port)
-            self._sConnection.set_tunnel('www.shelfari.com', 80)
+            self._https_address = ':'.join(https_proxy.split(':')[:-1])
+            self._https_port = int(https_proxy.split(':')[-1])
+            self._connection = HTTPSConnection(self._https_address, self._https_port)
+            self._connection.set_tunnel('www.goodreads.com', 443)
         else:
-            self._aConnection = HTTPConnection('www.amazon.com')
-            self._sConnection = HTTPConnection('www.shelfari.com')
+            self._connection = HTTPSConnection('www.goodreads.com')
 
         self._books = []
         for book_id in self._book_ids:
-            self._books.append(Book(self._db, book_id, self._aConnection, self._sConnection, formats=self._formats, spoilers=self._spoilers,
+            self._books.append(Book(self._db, book_id, self._connection, formats=self._formats,
                 send_to_device=self._send_to_device, create_xray=self._create_xray, proxy=self._proxy,
-                http_address=self._http_address, http_port=self._http_port))
+                https_address=self._https_address, https_port=self._https_port))
         
         self._total_not_failing = sum([1 for book in self._books if book.status is not book.FAIL])
 
@@ -115,7 +110,7 @@ class XRayCreator(object):
             if abort.isSet():
                 return
             if log: log('%s %s' % (datetime.now().strftime('%m-%d-%Y %H:%M:%S'), book.title_and_author))
-            self._aConnection, self._sConnection = book.create_xray_event(self._aConnection, self._sConnection, log=log, notifications=notifications, abort=abort, book_num=book_num, total=self._total_not_failing)
+            self._connection = book.create_xray_event(self._connection, log=log, notifications=notifications, abort=abort, book_num=book_num, total=self._total_not_failing)
 
         self.get_results_create()
         log('\nX-Ray Creation:')
@@ -149,7 +144,7 @@ class XRayCreator(object):
             if abort.isSet():
                 return
             if log: log('%s %s' % (datetime.now().strftime('%m-%d-%Y %H:%M:%S'), book.title_and_author))
-            self._aConnection, self._sConnection = book.send_xray_event(self._aConnection, self._sConnection, log=log, notifications=notifications, abort=abort, book_num=book_num, total=self._total_not_failing)
+            self._connection = book.send_xray_event(self._connection, log=log, notifications=notifications, abort=abort, book_num=book_num, total=self._total_not_failing)
 
         self.get_results_send()
         if len(self._send_completed) > 0:

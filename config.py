@@ -14,7 +14,6 @@ from calibre.utils.config import JSONConfig
 prefs = JSONConfig('plugins/xray_creator')
 
 # Set defaults
-prefs.defaults['spoilers'] = False
 prefs.defaults['send_to_device'] = True
 prefs.defaults['create_xray_when_sending'] = True
 prefs.defaults['mobi'] = True
@@ -25,10 +24,6 @@ class ConfigWidget(QWidget):
         QWidget.__init__(self)
         self.l = QVBoxLayout()
         self.setLayout(self.l)
-
-        self.spoilers = QCheckBox('Use spoilers when creating x-ray')
-        self.spoilers.setChecked(prefs['spoilers'])
-        self.l.addWidget(self.spoilers)
 
         self.send_to_device = QCheckBox('Send x-ray to device if connected')
         self.send_to_device.setChecked(prefs['send_to_device'])
@@ -53,7 +48,6 @@ class ConfigWidget(QWidget):
         self.l.addWidget(self.book_types_to_create)
 
     def save_settings(self):
-        prefs['spoilers'] = self.spoilers.isChecked()
         prefs['send_to_device'] = self.send_to_device.isChecked()
         prefs['create_xray_when_sending'] = self.create_xray_when_sending.isChecked()
         prefs['mobi'] = self.mobi.isChecked()
