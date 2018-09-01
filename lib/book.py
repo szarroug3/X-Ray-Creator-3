@@ -492,8 +492,7 @@ class Book(object):
         '''Will parse book using the format info given'''
         try:
             book_parser = BookParser(fmt, info['local_book'], self._goodreads_data['xray'], self._basic_info['aliases'])
-            book_parser.parse()
-            info['parsed_book_data'] = book_parser.parsed_data
+            info['parsed_book_data'] = book_parser.parse()
         except MobiError:
             info['status'].set(StatusInfo.FAIL, StatusInfo.F_UNABLE_TO_PARSE_BOOK)
 

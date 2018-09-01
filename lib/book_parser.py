@@ -11,7 +11,6 @@ from calibre.ebooks.mobi.huffcdic import HuffReader
 from calibre.ebooks.mobi.reader.mobi6 import MobiReader
 from calibre.ebooks.compression.palmdoc import decompress_doc
 
-PARAGRAPH_PAT = re.compile(r'<(p|i|h\d) .*?>.+?(?:<\/\1)', re.I)
 
 class BookParser(object):
     '''Class to parse book using information from user and goodreads'''
@@ -21,7 +20,9 @@ class BookParser(object):
         self._entity_data = {}
         self._quotes = goodreads_data['quotes']
         self._aliases = {}
-        self._parsed_data = None
+        self._excerpts = {}
+        self._excerpt_id = 0
+        self._excerpt_to_id = {}
 
         self._offset = 0
         if book_type.lower() == 'azw3':
@@ -46,132 +47,97 @@ class BookParser(object):
                 for alias in alias_list:
                     self._aliases[alias.lower()] = term.lower()
 
-    @property
-    def parsed_data(self):
-        return self._parsed_data
-
     def parse(self):
         '''Parses book'''
         erl, codec = self.find_erl_and_encoding()
-        notable_clips, excerpt_data = self._parse_paragraph_data(codec)
+        book_html = MobiExtractor(self._book_path, open(os.devnull, 'w')).extract_text()
 
-        num_excerpts = len(excerpt_data)
-        # add random excerpts to make sure notable clips has at least 20 excerpts
+
+        for word, entity_data in self._entity_data.items():
+            self._get_occurrences(book_html, word, entity_data)
+
+        for alias, original in self._aliases.items():
+            entity_data = self._entity_data[original]
+            self._get_occurrences(book_html, alias, entity_data)
+
+        return {'erl': erl,
+                'excerpt_data': self._excerpts,
+                'notable_clips': self._get_notable_clips(),
+                'entity_data': self._entity_data,
+                'codec': codec}
+
+    def _get_occurrences(self, book_html, word, entity_data):
+        """
+        Get the occurences of the word in the book html
+
+        Args:
+            :str word: the word we're looking for
+
+        Returns:
+            list: list of occurrence information for the word
+        """
+        entity_id = entity_data['entity_id']
+        occurrences = entity_data['occurrence']
+        excerpt_ids = entity_data['excerpt_ids']
+
+        word_re = r'\b' + re.escape(word) + r'\b'
+        re_pat = re.compile(r'(<)(p|i|h\d).*?>.*?({})(\S*).*?<\/\2.*?(>)'.format(word_re), re.I)
+
+        for node in re.finditer(re_pat, book_html):
+            excerpt = node.group(0)
+            excerpt_start = node.start(1) + self._offset
+            excerpt_len = node.start(5) - node.start(1)
+            word_start = node.start(3) + self._offset
+            word_len = node.end(4) - node.start(3)
+
+            if excerpt in self._excerpt_to_id.keys():
+                occurrence_excerpt_id = self._excerpt_to_id[excerpt]
+                if entity_id not in self._excerpts[occurrence_excerpt_id]['related_entities']:
+                    self._excerpts[occurrence_excerpt_id]['related_entities'].append(entity_id)
+            else:
+                occurrence_excerpt_id = self._excerpt_id
+                self._excerpts[occurrence_excerpt_id] = {'loc': excerpt_start,
+                                                         'len': excerpt_len,
+                                                         'related_entities': [entity_id]}
+                self._excerpt_to_id[excerpt] = occurrence_excerpt_id
+                self._excerpt_id += 1
+
+            if occurrence_excerpt_id not in excerpt_ids:
+                occurrences.append({'loc': word_start, 'len': word_len})
+                excerpt_ids.append(occurrence_excerpt_id)
+        return occurrences
+
+    def _get_notable_clips(self):
+        """
+        Gets notable clips from excerpts
+
+        Will pad notable clips to 20 if possible
+
+        Returns:
+            list: notable clips
+        """
+        notable_clips = []
+        num_excerpts = len(self._excerpts)
+
+        for quote in self._quotes:
+            quote_excerpt_id = self._excerpt_to_id.get(quote)
+            if quote_excerpt_id:
+                notable_clips.append(quote_excerpt_id)
+
+        if num_excerpts == 0 or len(notable_clips) >= 20:
+            return notable_clips
+
         if len(notable_clips) + num_excerpts >= 20:
             num_of_notable_clips = 20
         else:
             num_of_notable_clips = len(notable_clips) + num_excerpts
 
-        if num_of_notable_clips > 0:
-            while len(notable_clips) < num_of_notable_clips:
-                rand_excerpt = randrange(0, num_excerpts - 1) if num_excerpts > 1 else 1
-                if rand_excerpt not in notable_clips:
-                    notable_clips.append(rand_excerpt)
+        while len(notable_clips) < num_of_notable_clips:
+            rand_excerpt = randrange(0, num_excerpts - 1) if num_excerpts > 1 else 1
+            if rand_excerpt not in notable_clips:
+                notable_clips.append(rand_excerpt)
 
-        self._parsed_data = {'erl': erl,
-                             'excerpt_data': excerpt_data,
-                             'notable_clips': notable_clips,
-                             'entity_data': self._entity_data,
-                             'codec': codec}
-
-    def _parse_paragraph_data(self, codec):
-        '''Parses paragraph data in book'''
-        escaped_word_list = [re.escape(word) for word in self._aliases.keys() + self._entity_data.keys()]
-        word_pat = re.compile(r'(\b' + r'\b|\b'.join(escaped_word_list) + r'\b)', re.I)
-
-        # get db data
-        excerpt_id = 0
-        excerpt_data = {}
-        notable_clips = []
-        for word_loc, para_start, para_len in self._get_paragraph_data(codec):
-            related_entities = []
-            if len(self._entity_data.keys()) > 0:
-            # for each match found, fill in entity_data and excerpt_data information
-                for match in re.finditer(word_pat, word_loc['words']):
-                    entity_id = self._process_match(match, codec, excerpt_id, word_loc)
-                    if entity_id not in related_entities:
-                        related_entities.append(entity_id)
-            for quote in self._quotes:
-                if quote.lower() in word_loc['words'].lower() and excerpt_id not in notable_clips:
-                    notable_clips.append(excerpt_id)
-            excerpt_data[excerpt_id] = {'loc': para_start, 'len': para_len, 'related_entities': related_entities}
-            excerpt_id += 1
-
-        return notable_clips, excerpt_data
-
-    def _get_paragraph_data(self, codec):
-        '''Gets paragraphs from book'''
-        paragraph_data = []
-        book_html = MobiExtractor(self._book_path, open(os.devnull, 'w')).extract_text()
-
-        # find all paragraphs (sections enclosed in html p tags) and their starting offset
-        for node in re.finditer(PARAGRAPH_PAT, book_html):
-            word_loc = {'words': '', 'locs': [], 'char_sizes': []}
-
-            skip = False
-            loc = node.start(0)+self._offset
-            for i, char in enumerate(node.group(0).decode(codec)):
-                word_loc['char_sizes'].append(len(char.encode(codec)))
-                if char == '<' and not skip:
-                    skip = True
-                    if node.group(0)[i:i+3] == '<br':
-                        word_loc['words'] += ' '
-                        word_loc['locs'].append(loc)
-                if not skip:
-                    word_loc['words'] += char
-                    word_loc['locs'].append(loc)
-                if char == '>' and skip:
-                    skip = False
-                loc += len(char.encode(codec))
-
-            if len(word_loc['locs']) > 0:
-                paragraph_data.append((word_loc, node.start(0)+self._offset, len(node.group(0))))
-
-        return paragraph_data
-
-    def _process_match(self, match, codec, excerpt_id, word_loc):
-        matched_word = match.group(1).decode(codec).lower()
-        if matched_word in self._entity_data.keys():
-            term = self._entity_data[matched_word]
-        elif matched_word in self._aliases.keys():
-            term = self._entity_data[self._aliases[matched_word]]
-        entity_id = term['entity_id']
-        term['mentions'] += 1
-        term['excerpt_ids'].append(excerpt_id)
-        word_start = self._find_start(match.start(0), word_loc['words'])
-        term['occurrence'].append({'loc': word_loc['locs'][word_start],
-                                   'len': self._find_len_word(match.start(0), match.end(0), word_loc)})
-        return entity_id
-
-    @staticmethod
-    def _find_start(start, string):
-        '''Finds beggining index of word'''
-        previous_space = string[:start].rfind(' ')
-        if previous_space == -1:
-            start_index = 0
-        else:
-            start_index = previous_space + 1
-        return start_index
-
-    @staticmethod
-    def _find_len_word(start, end, word_loc):
-        '''Finds length between starting index of word and the next space'''
-        string = word_loc['words']
-        char_sizes = word_loc['char_sizes']
-
-        first_char = string[:start].rfind(' ')
-        last_char = string.find(' ', end)
-
-        if first_char == -1:
-            first_char = 0
-        else:
-            first_char += 1
-        if last_char == -1:
-            last_char = len(string) - 1
-        else:
-            last_char -= 1
-
-        return sum(char_sizes[start:last_char+1])
+        return notable_clips
 
     def find_erl_and_encoding(self):
         '''Finds book's erl and codec'''
