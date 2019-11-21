@@ -4,7 +4,7 @@
 import os
 import re
 from struct import unpack, error
-from random import randrange
+from random import shuffle
 
 from calibre.ebooks.mobi import MobiError
 from calibre.ebooks.mobi.huffcdic import HuffReader
@@ -141,8 +141,10 @@ class BookParser(object):
         else:
             num_of_notable_clips = len(notable_clips) + num_excerpts
 
+        excerpts_available = range(0, num_excerpts)
+        shuffle(excerpts_available)
         while len(notable_clips) < num_of_notable_clips:
-            rand_excerpt = randrange(0, num_excerpts - 1) if num_excerpts > 1 else 1
+            rand_excerpt = excerpts_available.pop() if num_excerpts > 1 else 1
             if rand_excerpt not in notable_clips:
                 notable_clips.append(rand_excerpt)
 
